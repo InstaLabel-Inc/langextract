@@ -314,12 +314,11 @@ result = lx.extract(
     examples=examples,
     model_id="gpt-4o",  # Automatically selects OpenAI provider
     api_key=os.environ.get('OPENAI_API_KEY'),
-    fence_output=True,
-    use_schema_constraints=False
+    use_schema_constraints=True  # Uses OpenAI Structured Outputs
 )
 ```
 
-Note: OpenAI models require `fence_output=True` and `use_schema_constraints=False` because LangExtract doesn't implement schema constraints for OpenAI yet.
+OpenAI models support `use_schema_constraints=True` which leverages [OpenAI's Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs) feature to guarantee JSON schema adherence.
 
 ## Using Local LLMs with Ollama
 LangExtract supports local inference using Ollama, allowing you to run models without API keys:
