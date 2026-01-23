@@ -17,15 +17,14 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 import copy
 import dataclasses
-from typing import Any, TYPE_CHECKING
 import warnings
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
-from langextract.core import data
+from langextract.core import data, schema
 from langextract.core import format_handler as fh
-from langextract.core import schema
 
 if TYPE_CHECKING:
     from pydantic import BaseModel as PydanticBaseModel
@@ -298,8 +297,7 @@ class OpenAISchema(schema.BaseSchema):
         if result.get("type") == "object" and "properties" in result:
             props = result.get("properties", {})
             result["properties"] = {
-                k: cls._process_node_for_openai(v, defs)
-                for k, v in props.items()
+                k: cls._process_node_for_openai(v, defs) for k, v in props.items()
             }
             # Ensure all properties are required
             result["required"] = list(props.keys())
@@ -307,7 +305,8 @@ class OpenAISchema(schema.BaseSchema):
 
         # Handle array type
         if result.get("type") == "array" and "items" in result:
-            result["items"] = cls._process_node_for_openai(result["items"], defs)
+            items = result["items"]
+            result["items"] = cls._process_node_for_openai(items, defs)
 
         # Remove unsupported keys
         result.pop("title", None)
@@ -349,8 +348,7 @@ class OpenAISchema(schema.BaseSchema):
             return inner
         elif has_null and len(non_null) > 1:
             # Multiple types + null - process each and keep anyOf
-            processed = [cls._process_node_for_openai(opt, defs)
-                         for opt in non_null]
+            processed = [cls._process_node_for_openai(opt, defs) for opt in non_null]
             processed.append({"type": "null"})
             result = dict(node)
             result["anyOf"] = processed
@@ -358,8 +356,9 @@ class OpenAISchema(schema.BaseSchema):
         else:
             # No null - just process each option
             result = dict(node)
-            result["anyOf"] = [cls._process_node_for_openai(opt, defs)
-                               for opt in any_of]
+            result["anyOf"] = [
+                cls._process_node_for_openai(opt, defs) for opt in any_of
+            ]
             return result
 
     @classmethod
