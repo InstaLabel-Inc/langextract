@@ -231,6 +231,7 @@ class OpenAISchema(schema.BaseSchema):
         """Creates an OpenAISchema from a Pydantic model.
 
         Converts Pydantic's JSON schema to OpenAI-compatible format:
+        - Wraps the model in an "extractions" array for pipeline compatibility
         - Ensures additionalProperties: false at all object levels
         - All properties listed in required array
         - Handles Optional types as ["type", "null"] unions
@@ -245,11 +246,24 @@ class OpenAISchema(schema.BaseSchema):
         """
         raw_schema = model_class.model_json_schema()
         defs = raw_schema.pop("$defs", {})
-        processed = cls._process_node_for_openai(raw_schema, defs)
+        processed_item = cls._process_node_for_openai(raw_schema, defs)
+
+        # Wrap in extractions array for pipeline compatibility
+        schema_dict = {
+            "type": "object",
+            "properties": {
+                data.EXTRACTIONS_KEY: {
+                    "type": "array",
+                    "items": processed_item,
+                }
+            },
+            "required": [data.EXTRACTIONS_KEY],
+            "additionalProperties": False,
+        }
 
         name = schema_name or model_class.__name__
         return cls(
-            _schema_dict=processed,
+            _schema_dict=schema_dict,
             _schema_name=name,
             _model_class=model_class,
         )
@@ -400,4 +414,5 @@ class OpenAISchema(schema.BaseSchema):
             if key != "allOf" and key not in merged:
                 merged[key] = value
 
+        return cls._process_node_for_openai(merged, defs)
         return cls._process_node_for_openai(merged, defs)

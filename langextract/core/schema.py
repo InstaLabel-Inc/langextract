@@ -19,9 +19,8 @@ import abc
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
-from langextract.core import data
+from langextract.core import data, types
 from langextract.core import format_handler as fh
-from langextract.core import types
 
 if TYPE_CHECKING:
     from pydantic import BaseModel as PydanticBaseModel
@@ -178,5 +177,4 @@ class FormatModeSchema(BaseSchema):
                 types.FormatType.JSON
                 if self._format == "json"
                 else types.FormatType.YAML
-            )
             )

@@ -19,7 +19,7 @@ from typing import Optional
 from absl.testing import absltest
 from pydantic import BaseModel, Field
 
-from langextract.core import schema
+from langextract.core import data, schema
 from langextract.providers.schemas import gemini as gemini_schema
 from langextract.providers.schemas import openai as openai_schema
 
@@ -68,6 +68,11 @@ class PersonWithDescription(BaseModel):
     age: int = Field(description="Age in years")
 
 
+def _get_item_schema(schema_dict: dict) -> dict:
+    """Helper to get the item schema from the extractions wrapper."""
+    return schema_dict["properties"][data.EXTRACTIONS_KEY]["items"]
+
+
 class BaseSchemaFromPydanticTest(absltest.TestCase):
     """Tests for BaseSchema.from_pydantic() default behavior."""
 
@@ -94,31 +99,50 @@ class OpenAISchemaFromPydanticTest(absltest.TestCase):
         self.assertEqual(result.schema_name, "SimplePerson")
         self.assertEqual(result._model_class, SimplePerson)
 
-    def test_all_fields_required(self):
-        """Test that all properties are in required array (OpenAI requirement)."""
+    def test_wrapped_in_extractions(self):
+        """Test that schema is wrapped in extractions array."""
         result = openai_schema.OpenAISchema.from_pydantic(SimplePerson)
         schema_dict = result.schema_dict
 
-        self.assertIn("required", schema_dict)
-        self.assertIn("name", schema_dict["required"])
-        self.assertIn("age", schema_dict["required"])
+        self.assertIn(data.EXTRACTIONS_KEY, schema_dict["properties"])
+        self.assertEqual(
+            schema_dict["properties"][data.EXTRACTIONS_KEY]["type"], "array"
+        )
+        self.assertIn("items", schema_dict["properties"][data.EXTRACTIONS_KEY])
+
+    def test_all_fields_required_in_item(self):
+        """Test that all properties are in required array (OpenAI requirement)."""
+        result = openai_schema.OpenAISchema.from_pydantic(SimplePerson)
+        item_schema = _get_item_schema(result.schema_dict)
+
+        self.assertIn("required", item_schema)
+        self.assertIn("name", item_schema["required"])
+        self.assertIn("age", item_schema["required"])
 
     def test_additional_properties_false(self):
         """Test that additionalProperties is false (OpenAI requirement)."""
         result = openai_schema.OpenAISchema.from_pydantic(SimplePerson)
         schema_dict = result.schema_dict
 
+        # Check root level
         self.assertFalse(
             schema_dict.get("additionalProperties", True),
-            msg="additionalProperties should be False",
+            msg="Root additionalProperties should be False",
+        )
+
+        # Check item level
+        item_schema = _get_item_schema(schema_dict)
+        self.assertFalse(
+            item_schema.get("additionalProperties", True),
+            msg="Item additionalProperties should be False",
         )
 
     def test_optional_fields_nullable(self):
         """Test that Optional fields use type union with null (OpenAI syntax)."""
         result = openai_schema.OpenAISchema.from_pydantic(PersonWithOptional)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        age_type = schema_dict["properties"]["age"]["type"]
+        age_type = item_schema["properties"]["age"]["type"]
         self.assertIsInstance(
             age_type, list, msg="Optional field type should be a list"
         )
@@ -127,9 +151,9 @@ class OpenAISchemaFromPydanticTest(absltest.TestCase):
     def test_nested_model(self):
         """Test schema generation with nested models."""
         result = openai_schema.OpenAISchema.from_pydantic(PersonWithAddress)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        address_props = schema_dict["properties"]["address"]
+        address_props = item_schema["properties"]["address"]
         self.assertIn("properties", address_props)
         self.assertFalse(
             address_props.get("additionalProperties", True),
@@ -144,9 +168,9 @@ class OpenAISchemaFromPydanticTest(absltest.TestCase):
     def test_list_fields(self):
         """Test schema generation with list fields."""
         result = openai_schema.OpenAISchema.from_pydantic(PersonWithTags)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        tags_schema = schema_dict["properties"]["tags"]
+        tags_schema = item_schema["properties"]["tags"]
         self.assertEqual(tags_schema["type"], "array")
         self.assertIn("items", tags_schema)
 
@@ -183,13 +207,13 @@ class OpenAISchemaFromPydanticTest(absltest.TestCase):
     def test_removes_title_and_default(self):
         """Test that unsupported keys like title and default are removed."""
         result = openai_schema.OpenAISchema.from_pydantic(PersonWithOptional)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
         # Pydantic adds title by default, should be removed
-        self.assertNotIn("title", schema_dict)
+        self.assertNotIn("title", item_schema)
 
         # Check properties don't have title either
-        for prop in schema_dict.get("properties", {}).values():
+        for prop in item_schema.get("properties", {}).values():
             if isinstance(prop, dict):
                 self.assertNotIn("title", prop)
 
@@ -204,6 +228,17 @@ class GeminiSchemaFromPydanticTest(absltest.TestCase):
         self.assertIsNotNone(result.schema_dict)
         self.assertEqual(result._model_class, SimplePerson)
 
+    def test_wrapped_in_extractions(self):
+        """Test that schema is wrapped in extractions array."""
+        result = gemini_schema.GeminiSchema.from_pydantic(SimplePerson)
+        schema_dict = result.schema_dict
+
+        self.assertIn(data.EXTRACTIONS_KEY, schema_dict["properties"])
+        self.assertEqual(
+            schema_dict["properties"][data.EXTRACTIONS_KEY]["type"], "array"
+        )
+        self.assertIn("items", schema_dict["properties"][data.EXTRACTIONS_KEY])
+
     def test_to_provider_config(self):
         """Test that to_provider_config returns correct Gemini format."""
         result = gemini_schema.GeminiSchema.from_pydantic(SimplePerson)
@@ -215,9 +250,9 @@ class GeminiSchemaFromPydanticTest(absltest.TestCase):
     def test_optional_fields_use_nullable(self):
         """Test that Optional fields use nullable: true syntax for Gemini."""
         result = gemini_schema.GeminiSchema.from_pydantic(PersonWithOptional)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        age_prop = schema_dict["properties"]["age"]
+        age_prop = item_schema["properties"]["age"]
         self.assertTrue(
             age_prop.get("nullable", False),
             msg="Optional field should have nullable: true",
@@ -226,9 +261,9 @@ class GeminiSchemaFromPydanticTest(absltest.TestCase):
     def test_nested_model(self):
         """Test schema generation with nested models."""
         result = gemini_schema.GeminiSchema.from_pydantic(PersonWithAddress)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        address_props = schema_dict["properties"]["address"]
+        address_props = item_schema["properties"]["address"]
         self.assertIn("properties", address_props)
         self.assertIn("street", address_props["properties"])
         self.assertIn("city", address_props["properties"])
@@ -236,18 +271,18 @@ class GeminiSchemaFromPydanticTest(absltest.TestCase):
     def test_list_fields(self):
         """Test schema generation with list fields."""
         result = gemini_schema.GeminiSchema.from_pydantic(PersonWithTags)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        tags_schema = schema_dict["properties"]["tags"]
+        tags_schema = item_schema["properties"]["tags"]
         self.assertEqual(tags_schema["type"], "array")
         self.assertIn("items", tags_schema)
 
     def test_preserves_descriptions(self):
         """Test that field descriptions are preserved."""
         result = gemini_schema.GeminiSchema.from_pydantic(PersonWithDescription)
-        schema_dict = result.schema_dict
+        item_schema = _get_item_schema(result.schema_dict)
 
-        name_prop = schema_dict["properties"]["name"]
+        name_prop = item_schema["properties"]["name"]
         self.assertEqual(
             name_prop.get("description"),
             "The person's full name",
@@ -266,7 +301,8 @@ class GeminiSchemaFromPydanticTest(absltest.TestCase):
 
         self.assertNotIn("$defs", schema_dict)
         # Address should be inlined, not a reference
-        address_props = schema_dict["properties"]["address"]
+        item_schema = _get_item_schema(schema_dict)
+        address_props = item_schema["properties"]["address"]
         self.assertNotIn("$ref", address_props)
 
 

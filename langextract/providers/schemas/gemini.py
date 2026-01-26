@@ -194,6 +194,7 @@ class GeminiSchema(schema.BaseSchema):
 
         Gemini accepts JSON schema via response_schema. This method converts
         Pydantic's model_json_schema() output to a Gemini-compatible format:
+        - Wraps the model in an "extractions" array for pipeline compatibility
         - Resolves $defs references inline
         - Converts anyOf (Optional) to nullable: true syntax
         - Removes unsupported keys (title, default, examples)
@@ -208,10 +209,22 @@ class GeminiSchema(schema.BaseSchema):
         del schema_name  # Unused for Gemini
         raw_schema = model_class.model_json_schema()
         defs = raw_schema.pop("$defs", {})
-        processed = cls._process_node_for_gemini(raw_schema, defs)
+        processed_item = cls._process_node_for_gemini(raw_schema, defs)
+
+        # Wrap in extractions array for pipeline compatibility
+        schema_dict = {
+            "type": "object",
+            "properties": {
+                data.EXTRACTIONS_KEY: {
+                    "type": "array",
+                    "items": processed_item,
+                }
+            },
+            "required": [data.EXTRACTIONS_KEY],
+        }
 
         return cls(
-            _schema_dict=processed,
+            _schema_dict=schema_dict,
             _model_class=model_class,
         )
 
@@ -346,4 +359,5 @@ class GeminiSchema(schema.BaseSchema):
             if key != "allOf" and key not in merged:
                 merged[key] = value
 
+        return cls._process_node_for_gemini(merged, defs)
         return cls._process_node_for_gemini(merged, defs)
